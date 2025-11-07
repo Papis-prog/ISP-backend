@@ -1,6 +1,7 @@
 const allowedOrigins = [
     'http://localhost:3000',
     'https://ips-institut-1.onrender.com',
+    'http://isp-backend-n17n.onrender.com',
     'http://localhost:3500'
 ]
 
