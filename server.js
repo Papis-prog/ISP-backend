@@ -25,7 +25,7 @@ app.use(express.json())
 
 app.use(cookieParser())
 
-app.use('/uploads', express.static(path.join(__dirname, 'public', 'uploads')))
+app.use('/uploads', express.static(path.join(__dirname, 'public')))
 
 app.use('/', require('./routes/root'))
 app.use('/api/inscriptions', inscriptionRoutes)
