@@ -84,7 +84,6 @@ const createNewInscription = asyncHandler(async (req, res) => {
     console.log('[INSCRIPTION ENREGISTRÉE] :', inscription)
 
     // 7. on répond TOUT DE SUITE au frontend pour ne pas le bloquer
-    // (important sur Render si l’envoi d’email prend trop de temps)
     res.status(201).json({
       success: true,
       emailSent: false,
@@ -93,21 +92,34 @@ const createNewInscription = asyncHandler(async (req, res) => {
     })
 
     // 8. ensuite seulement on tente d’envoyer l’e-mail
-    // on utilise EXACTEMENT la même config que ton autre fichier qui marche sur Render
-    if (!process.env.MAIL || !process.env.PASSWORD_EMAIL) {
-      console.log('[MAIL] MAIL ou PASSWORD_EMAIL manquant → pas d’envoi.')
+
+    // on aligne avec TON .env :
+    // EMAIL_USER=...
+    // EMAIL_PASS=...
+    // INSTITUTE_EMAIL=...
+    // SEND_EMAIL=true
+    const canSendMail =
+      process.env.SEND_EMAIL === 'true' &&
+      process.env.EMAIL_USER &&
+      process.env.EMAIL_PASS
+
+    if (!canSendMail) {
+      console.log('[MAIL] Envoi désactivé ou variables EMAIL_USER / EMAIL_PASS manquantes.')
       return
     }
 
+    // transporteur Gmail, comme dans ton exemple qui marche déjà sur Render
     const transporter = nodemailer.createTransport({
       service: 'Gmail',
       auth: {
-        user: process.env.MAIL,
-        pass: process.env.PASSWORD_EMAIL
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
       }
+      // tu pourrais aussi mettre host/port à partir de ton .env,
+      // mais "service: Gmail" suffit dans ton cas
     })
 
-    // 9. préparer le contenu du mail
+    // contenu du mail
     const html = `
       <h2>Nouvelle inscription en ligne</h2>
       <p><strong>Prénom :</strong> ${ficheRenseignement.prenom}</p>
@@ -125,7 +137,7 @@ const createNewInscription = asyncHandler(async (req, res) => {
       </ul>
     `
 
-    // 10. pièces jointes si upload réel
+    // pièces jointes si upload réel
     const attachments = []
     if (diplomeFile) {
       attachments.push({
@@ -146,11 +158,11 @@ const createNewInscription = asyncHandler(async (req, res) => {
       })
     }
 
-    // 11. envoi en arrière-plan
+    // ENVOI EN ARRIÈRE-PLAN
     transporter
       .sendMail({
-        from: process.env.MAIL,
-        to: process.env.INSTITUTE_EMAIL || process.env.MAIL,
+        from: process.env.EMAIL_USER,
+        to: process.env.INSTITUTE_EMAIL || process.env.EMAIL_USER,
         subject: 'Nouvelle inscription en ligne',
         html,
         attachments
@@ -159,10 +171,8 @@ const createNewInscription = asyncHandler(async (req, res) => {
         console.log('[MAIL] e-mail envoyé avec succès :', info.messageId)
       })
       .catch((err) => {
-        // c’est ici que sur Render tu verras par ex. "Connection timeout"
         console.error("[MAIL] échec d'envoi :", err.message)
       })
-
   } catch (err) {
     console.error('[ERREUR MONGODB create] :', err)
     // on a déjà répondu au front plus haut
