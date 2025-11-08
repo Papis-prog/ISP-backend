@@ -3,7 +3,7 @@ const asyncHandler = require('express-async-handler')
 const nodemailer = require('nodemailer')
 const Inscription = require('../models/inscription.model').default
 
-// helper pour parser le JSON qui vient d'un formData
+// petit helper pour parser le JSON qui vient d'un formData (multipart)
 const parseMaybeJSON = (value) => {
   if (typeof value === 'string') {
     try {
@@ -16,8 +16,9 @@ const parseMaybeJSON = (value) => {
 }
 
 /**
- * @desc Create new inscription
+ * @desc Créer une nouvelle inscription
  * @route POST /inscriptions
+ * @access Public
  */
 const createNewInscription = asyncHandler(async (req, res) => {
   console.log('================= NOUVELLE REQUÊTE /inscriptions =================')
@@ -31,7 +32,7 @@ const createNewInscription = asyncHandler(async (req, res) => {
   const paiement = parseMaybeJSON(req.body?.paiement)
   const documentsBody = parseMaybeJSON(req.body?.documents)
 
-  // 2. récupérer les fichiers uploadés
+  // 2. récupérer les fichiers uploadés par multer
   const diplomeFile = req.files?.diplome?.[0]
   const cniFile = req.files?.carteIdentite?.[0]
   const recuFile = req.files?.recuPaiement?.[0]
@@ -59,7 +60,7 @@ const createNewInscription = asyncHandler(async (req, res) => {
       : documentsBody?.recuPaiementUrl
   }
 
-  // 5. objet à enregistrer
+  // 5. objet à enregistrer en base
   const inscriptionObject = {
     ficheRenseignement,
     etablissements: Array.isArray(etablissements)
@@ -83,36 +84,31 @@ const createNewInscription = asyncHandler(async (req, res) => {
     console.log('[INSCRIPTION ENREGISTRÉE] :', inscription)
 
     // 7. on répond TOUT DE SUITE au frontend pour ne pas le bloquer
+    // (important sur Render si l’envoi d’email prend trop de temps)
     res.status(201).json({
       success: true,
-      emailSent: false, // on mettra true plus bas si ça passe
+      emailSent: false,
       message: "Inscription enregistrée. Tentative d’envoi de l’e-mail à l’administration...",
       inscription
     })
 
     // 8. ensuite seulement on tente d’envoyer l’e-mail
-
-    const canSendMail =
-      process.env.SEND_EMAIL === 'true' &&
-      process.env.EMAIL_USER &&
-      process.env.EMAIL_PASS
-
-    if (!canSendMail) {
-      console.log('[MAIL] Envoi désactivé ou configuration manquante.')
+    // on utilise EXACTEMENT la même config que ton autre fichier qui marche sur Render
+    if (!process.env.MAIL || !process.env.PASSWORD_EMAIL) {
+      console.log('[MAIL] MAIL ou PASSWORD_EMAIL manquant → pas d’envoi.')
       return
     }
 
-    // transporteur Gmail (comme ton ancien code qui marchait)
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      service: 'Gmail',
       auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS // mot de passe d’application
+        user: process.env.MAIL,
+        pass: process.env.PASSWORD_EMAIL
       }
     })
 
-    // contenu du mail
-    const message = `
+    // 9. préparer le contenu du mail
+    const html = `
       <h2>Nouvelle inscription en ligne</h2>
       <p><strong>Prénom :</strong> ${ficheRenseignement.prenom}</p>
       <p><strong>Nom :</strong> ${ficheRenseignement.nom}</p>
@@ -129,41 +125,47 @@ const createNewInscription = asyncHandler(async (req, res) => {
       </ul>
     `
 
-    // pièces jointes réelles
+    // 10. pièces jointes si upload réel
     const attachments = []
     if (diplomeFile) {
-      attachments.push({ filename: diplomeFile.originalname, path: diplomeFile.path })
+      attachments.push({
+        filename: diplomeFile.originalname,
+        path: diplomeFile.path
+      })
     }
     if (cniFile) {
-      attachments.push({ filename: cniFile.originalname, path: cniFile.path })
+      attachments.push({
+        filename: cniFile.originalname,
+        path: cniFile.path
+      })
     }
     if (recuFile) {
-      attachments.push({ filename: recuFile.originalname, path: recuFile.path })
+      attachments.push({
+        filename: recuFile.originalname,
+        path: recuFile.path
+      })
     }
 
-    // envoi “en arrière-plan”
+    // 11. envoi en arrière-plan
     transporter
       .sendMail({
-        from: `"Institut Sup" <${process.env.EMAIL_USER}>`,
-        to: process.env.INSTITUTE_EMAIL || process.env.EMAIL_USER,
+        from: process.env.MAIL,
+        to: process.env.INSTITUTE_EMAIL || process.env.MAIL,
         subject: 'Nouvelle inscription en ligne',
-        html: message,
+        html,
         attachments
       })
-      .then(() => {
-        console.log('[MAIL] e-mail envoyé avec succès')
+      .then((info) => {
+        console.log('[MAIL] e-mail envoyé avec succès :', info.messageId)
       })
       .catch((err) => {
+        // c’est ici que sur Render tu verras par ex. "Connection timeout"
         console.error("[MAIL] échec d'envoi :", err.message)
       })
+
   } catch (err) {
     console.error('[ERREUR MONGODB create] :', err)
-    return res.status(500).json({
-      success: false,
-      emailSent: false,
-      message: 'Erreur serveur lors de la création',
-      error: err.message
-    })
+    // on a déjà répondu au front plus haut
   }
 })
 
