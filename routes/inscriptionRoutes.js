@@ -27,14 +27,14 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage })
 
-router.route('/')
-  .post(
-    upload.fields([
-      { name: 'diplome', maxCount: 1 },
-      { name: 'carteIdentite', maxCount: 1 },
-      { name: 'recuPaiement', maxCount: 1 }
-    ]),
-    inscriptionController.createNewInscription
-  )
+router.post(
+  '/',
+  upload.fields([
+    { name: 'diplome', maxCount: 1 },
+    { name: 'carteIdentite', maxCount: 1 },
+    { name: 'recuPaiement', maxCount: 1 }
+  ]),
+  inscriptionController.createNewInscription
+)
 
 module.exports = router
