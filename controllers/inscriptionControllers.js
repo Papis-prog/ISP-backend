@@ -39,6 +39,8 @@ const createNewInscription = asyncHandler(async (req, res) => {
   // 3. validation minimale
   if (!ficheRenseignement || !ficheRenseignement.prenom || !ficheRenseignement.nom) {
     return res.status(400).json({
+      success: false,
+      emailSent: false,
       message: 'Les champs prénom et nom de la fiche de renseignement sont obligatoires'
     })
   }
@@ -80,8 +82,7 @@ const createNewInscription = asyncHandler(async (req, res) => {
     const inscription = await Inscription.create(inscriptionObject)
     console.log('[INSCRIPTION ENREGISTRÉE] :', inscription)
 
-    // on regarde si on a le droit d’envoyer le mail
-    // (comme ça en prod/render tu peux mettre SEND_EMAIL=false)
+    // est-ce qu'on tente l'envoi du mail ?
     const canSendMail =
       process.env.SEND_EMAIL === 'true' &&
       process.env.EMAIL_USER &&
@@ -105,30 +106,32 @@ const createNewInscription = asyncHandler(async (req, res) => {
       </ul>
     `
 
-    // si on ne veut pas/peut pas envoyer → on s’arrête ici
+    // cas où on n'envoie pas du tout d'email (ex: Render)
     if (!canSendMail) {
+      console.log('[MAIL] Envoi désactivé (SEND_EMAIL != true ou credentials manquants)')
       return res.status(201).json({
         success: true,
-        message: "Inscription enregistrée. (Envoi e-mail désactivé ou non configuré.)",
+        emailSent: false,
+        message: "Inscription enregistrée. (E-mail désactivé sur ce serveur.)",
         inscription
       })
     }
 
-    // 7. transporteur “à l’ancienne” comme ton ancien code
+    // 7. transporteur gmail (comme ton ancien code)
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
         user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS // mot de passe d'appli
+        pass: process.env.EMAIL_PASS // mot de passe d'application
       }
     })
 
-    // 8. attachements comme avant (on prend le chemin physique)
+    // 8. attachements réels (chemin disque)
     const attachments = []
     if (diplomeFile) {
       attachments.push({
         filename: diplomeFile.originalname,
-        path: diplomeFile.path   // <- multer nous donne le chemin exact
+        path: diplomeFile.path
       })
     }
     if (cniFile) {
@@ -156,21 +159,24 @@ const createNewInscription = asyncHandler(async (req, res) => {
 
       return res.json({
         success: true,
-        message: 'Inscription envoyée avec succès !',
+        emailSent: true,
+        message: 'Inscription enregistrée et e-mail envoyé à l’administration.',
         inscription
       })
     } catch (error) {
-      // si c’est Render qui bloque le SMTP → on remet OK
       console.error("Erreur lors de l'envoi du mail (on renvoie quand même OK) :", error.message)
       return res.status(201).json({
         success: true,
-        message: "Inscription enregistrée, mais l'e-mail n'a pas pu être envoyé.",
+        emailSent: false,
+        message: "Inscription enregistrée, mais l'e-mail n'a pas pu être envoyé (SMTP).",
         inscription
       })
     }
   } catch (err) {
     console.error('[ERREUR MONGODB create] :', err)
     return res.status(500).json({
+      success: false,
+      emailSent: false,
       message: 'Erreur serveur lors de la création',
       error: err.message
     })
