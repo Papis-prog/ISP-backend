@@ -45,7 +45,6 @@ const createNewInscription = asyncHandler(async (req, res) => {
   }
 
   // 4. construire les URLs publiques vers les fichiers
-  // ex: http://localhost:3500/uploads/xxx.pdf
   const baseUrl = `${req.protocol}://${req.get('host')}`
   const documents = {
     diplomeUrl: diplomeFile
@@ -82,22 +81,14 @@ const createNewInscription = asyncHandler(async (req, res) => {
     const inscription = await Inscription.create(inscriptionObject)
     console.log('[INSCRIPTION ENREGISTRÉE] :', inscription)
 
-    // 7. préparer le transport mail
-    const transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-      port: process.env.EMAIL_PORT ? Number(process.env.EMAIL_PORT) : 587,
-      secure: false,
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      },
-      // ça évite que ça reste bloqué trop longtemps si Render bloque le SMTP
-      connectionTimeout: 5000,
-      greetingTimeout: 5000,
-      socketTimeout: 5000
-    })
+    // === IMPORTANT ===
+    // on ne tente d'envoyer le mail QUE si SEND_EMAIL=true et qu'on a les identifiants
+    const canSendMail =
+      process.env.SEND_EMAIL === 'true' &&
+      process.env.EMAIL_USER &&
+      process.env.EMAIL_PASS
 
-    // 8. construire le mail (avec liens)
+    // message HTML à envoyer (on le prépare de toute façon)
     const message = `
       <h2>Nouvelle inscription en ligne</h2>
       <p><strong>Prénom :</strong> ${ficheRenseignement.prenom}</p>
@@ -127,7 +118,31 @@ const createNewInscription = asyncHandler(async (req, res) => {
       </ul>
     `
 
-    // 9. tenter d’envoyer le mail
+    // si on ne peut pas/envoyer ne doit pas → on s'arrête là
+    if (!canSendMail) {
+      console.log('[EMAIL] Envoi désactivé (SEND_EMAIL !== "true" ou credentials manquants)')
+      return res.status(201).json({
+        success: true,
+        message: "Inscription enregistrée. (Envoi e-mail désactivé sur ce serveur.)",
+        inscription
+      })
+    }
+
+    // 7. préparer le transport mail GMAIL
+    const transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+      port: process.env.EMAIL_PORT ? Number(process.env.EMAIL_PORT) : 587,
+      secure: false,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      },
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 5000
+    })
+
+    // 8. tenter d’envoyer le mail
     try {
       await transporter.sendMail({
         from: `"Institut Sup" <${process.env.EMAIL_USER}>`,
@@ -136,20 +151,18 @@ const createNewInscription = asyncHandler(async (req, res) => {
         html: message
       })
 
-      // mail + inscription OK
       return res.json({
         success: true,
         message: 'Inscription envoyée avec succès !',
         inscription
       })
     } catch (error) {
-      // ici c’est ton cas actuel: ETIMEDOUT
       console.error("Erreur lors de l'envoi du mail (on renvoie quand même OK) :", error.message)
 
       return res.status(201).json({
         success: true,
         message:
-          "Inscription enregistrée. L'e-mail n'a pas pu être envoyé depuis le serveur (timeout SMTP).",
+          "Inscription enregistrée, mais le serveur n'a pas pu envoyer l'e-mail (timeout SMTP).",
         inscription
       })
     }
@@ -165,4 +178,3 @@ const createNewInscription = asyncHandler(async (req, res) => {
 module.exports = {
   createNewInscription
 }
-
